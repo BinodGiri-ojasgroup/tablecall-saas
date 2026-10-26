@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tablecall}
+      POSTGRES_USER: ${POSTGRES_USER:-tablecall}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - tablecall_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tablecall} -d ${POSTGRES_DB:-tablecall}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [tablecall]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Bound to localhost by default; the https profile (Caddy) or your own proxy fronts it.
+    # Set BIND_ADDRESS=0.0.0.0 only for LAN testing without a proxy.
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tablecall}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tablecall}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
+      PIN_TTL_MINUTES: ${PIN_TTL_MINUTES:-15}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?Set BOOTSTRAP_ADMIN_EMAIL in .env}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set BOOTSTRAP_ADMIN_PASSWORD in .env}
+    networks: [tablecall]
+
+  # Optional automatic HTTPS:  docker compose --profile https up -d   (set DOMAIN, TRUSTED_PROXY_COUNT=1, COOKIE_SECURE=true)
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the https profile}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [tablecall]
+
+volumes:
+  tablecall_pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  tablecall:

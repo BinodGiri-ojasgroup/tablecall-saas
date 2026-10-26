@@ -1,0 +1,9 @@
+# Automatic HTTPS (Let's Encrypt). Requires DNS for $DOMAIN to point at this server and ports 80/443 open.
+{$DOMAIN} {
+	# Live updates use Server-Sent Events: never compress them, and flush each event straight away.
+	@static not path */events
+	encode @static zstd gzip
+	reverse_proxy app:8000 {
+		flush_interval -1
+	}
+}
